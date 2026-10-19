@@ -1,0 +1,65 @@
+{
+  "name": "tiktok-reader",
+  "version": "1.0.0",
+  "description": "TikTok Live Reader - WebSocket server for streaming TikTok Live comments and gifts",
+  "main": "dist/server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": "22.x",
+    "bun": ">=1.3.11"
+  },
+  "scripts": {
+    "preinstall": "if [ -f ../tools/package-manager-guard/check-package-manager.mjs ]; then node ../tools/package-manager-guard/check-package-manager.mjs --expect=npm --doc=tiktok-reader/README.md; fi",
+    "dev": "node --watch --watch-preserve-output -r ts-node/register src/server.ts",
+    "build": "tsc --project tsconfig.build.json",
+    "start": "node dist/server.js",
+    "test": "bun test --isolate",
+    "test:watch": "bun test --isolate --watch",
+    "test:coverage": "bun test --isolate --coverage",
+    "test:runtime": "node scripts/runtime-smoke.mjs",
+    "lint": "eslint .",
+    "notices": "node scripts/generate-third-party-notices.mjs > THIRD_PARTY_NOTICES.txt",
+    "sbom": "npm sbom --sbom-format cyclonedx --omit dev > sbom.cdx.json",
+    "lint:fix": "eslint . --fix"
+  },
+  "keywords": [
+    "tiktok",
+    "live",
+    "websocket",
+    "typescript"
+  ],
+  "author": "ousiassllc",
+  "private": true,
+  "files": [
+    "dist/",
+    "LICENSE",
+    "NOTICE",
+    "SOURCE.md",
+    "THIRD_PARTY_NOTICES.txt"
+  ],
+  "license": "AGPL-3.0-only",
+  "dependencies": {
+    "@google-cloud/firestore": "^9.0.0",
+    "@google-cloud/pubsub": "^6.0.1",
+    "axios": "^1.19.0",
+    "dotenv": "^16.4.0",
+    "tiktok-live-connector": "2.1.0",
+    "ws": "^8.21.3"
+  },
+  "overrides": {
+    "tiktok-live-connector": {
+      "protobufjs": "^7.6.5"
+    }
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/bun": "^1.3.14",
+    "@types/node": "^20.14.0",
+    "@types/ws": "^8.5.0",
+    "eslint": "^10.11.0",
+    "globals": "^17.12.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.70.1"
+  }
+}

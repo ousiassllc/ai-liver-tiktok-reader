@@ -1,0 +1,191 @@
+# 公開リポジトリ向け CI（Issue #2782）。
+#
+# このファイルは ai-liver monorepo では tiktok-reader/.github/ 配下のため GitHub に無視され、
+# 公開ミラー（tiktok-reader をルートに持つリポジトリ）でだけ有効になる。
+#
+# 方針:
+#   - fork の PR でも動くよう GitHub-hosted runner・読み取り権限のみ。secrets / GCP 認証 / 本番のデプロイ権限は使わない。
+#   - Firestore / Pub/Sub は公開イメージのエミュレータを使い、テストを skip しない。
+#   - action は SHA で固定する（更新は Dependabot 等で行う）。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: install / build / lint / test with coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          # engines.bun の下限は >=1.3.11。devDependency の @types/bun と揃える。
+          bun-version: 1.3.14
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Start Firestore emulator
+        run: |
+          set -euo pipefail
+          docker run --detach --rm --name firestore \
+            --publish 127.0.0.1::8080 \
+            gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators \
+            gcloud emulators firestore start --host-port=0.0.0.0:8080 --project=reader-ci
+          for _ in $(seq 1 60); do
+            docker exec firestore bash -c ': > /dev/tcp/127.0.0.1/8080' 2>/dev/null && break
+            sleep 1
+          done
+          docker exec firestore bash -c ': > /dev/tcp/127.0.0.1/8080'
+          host_port=$(docker port firestore 8080/tcp | sed -E 's/.*:([0-9]+)$/\1/' | head -n1)
+          echo "FIRESTORE_EMULATOR_HOST=127.0.0.1:${host_port}" >> "${GITHUB_ENV}"
+
+      - name: Start Pub/Sub emulator
+        run: |
+          set -euo pipefail
+          docker run --detach --rm --pull=never --name pubsub \
+            --publish 127.0.0.1::8085 \
+            gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators \
+            gcloud beta emulators pubsub start --host-port=0.0.0.0:8085 --project=reader-ci
+          ready=false
+          for _ in $(seq 1 60); do
+            if docker exec pubsub bash -c ': > /dev/tcp/127.0.0.1/8085' 2>/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "${ready}" != "true" ]; then
+            docker logs pubsub
+            exit 1
+          fi
+          host_port=$(docker port pubsub 8085/tcp | sed -E 's/.*:([0-9]+)$/\1/' | head -n1)
+          echo "PUBSUB_EMULATOR_HOST=127.0.0.1:${host_port}" >> "${GITHUB_ENV}"
+
+      - run: npm run build
+      - run: npx tsc --noEmit
+      - run: npm run lint
+      # エミュレータが無いとテストの skip ではなくカバレッジ割れで落ちる。
+      - run: npm run test:coverage
+      - run: npm run test:runtime
+
+      - name: Stop emulators
+        if: always()
+        run: |
+          docker stop firestore pubsub || true
+
+  docker:
+    name: docker build / runtime image contents
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI_SOURCE_URL: https://example.invalid/source/build-time
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Verify Docker context excludes local files
+        run: bash scripts/check-docker-context.sh
+
+      - name: Build image (.dockerignore を効かせた context)
+        run: |
+          docker build \
+            --build-arg SOURCE_COMMIT="${GITHUB_SHA::7}" \
+            --build-arg TIKTOK_READER_SOURCE_URL="$CI_SOURCE_URL" \
+            -t tiktok-reader:ci .
+
+      - name: LICENSE / NOTICE / SOURCE.md / third-party notices / revision が image に入っている
+        run: |
+          set -euo pipefail
+          for f in LICENSE NOTICE SOURCE.md THIRD_PARTY_NOTICES.txt; do
+            docker run --rm --entrypoint test tiktok-reader:ci -s "/app/$f"
+          done
+          test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' tiktok-reader:ci)" = "${GITHUB_SHA::7}"
+          test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.source" }}' tiktok-reader:ci)" = "$CI_SOURCE_URL"
+
+      - name: Built /source handler uses the image default and runtime overrides
+        run: |
+          set -euo pipefail
+          for source_url in "$CI_SOURCE_URL" "https://example.invalid/source/runtime-override" ""; do
+            runtime_args=(--rm)
+            if [[ "$source_url" != "$CI_SOURCE_URL" ]]; then
+              runtime_args+=(--env "TIKTOK_READER_SOURCE_URL=$source_url")
+            fi
+            docker run "${runtime_args[@]}" \
+              --env "EXPECTED_SOURCE_URL=$source_url" \
+              --env "EXPECTED_SOURCE_COMMIT=${GITHUB_SHA::7}" \
+              --entrypoint node tiktok-reader:ci -e '
+                const assert = require("node:assert/strict");
+                const { createServer } = require("node:http");
+                const { HealthHandler } = require("./dist/handlers/health-handler");
+                const handler = new HealthHandler({
+                  lockService: null, pubsubService: null,
+                  connectionManager: null, instanceId: "source-ci",
+                });
+                const server = createServer((req, res) => handler.handleRequest(req, res));
+                server.listen(0, "127.0.0.1", async () => {
+                  try {
+                    const response = await fetch("http://127.0.0.1:" + server.address().port + "/source");
+                    assert.equal(response.status, 200);
+                    assert.deepEqual(await response.json(), {
+                      license: "AGPL-3.0-only",
+                      version: process.env.EXPECTED_SOURCE_COMMIT,
+                      sourceUrl: process.env.EXPECTED_SOURCE_URL || null,
+                    });
+                  } catch (error) {
+                    console.error(error);
+                    process.exitCode = 1;
+                  } finally {
+                    server.close();
+                  }
+                });
+              '
+          done
+
+  audit:
+    name: forbidden files / secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Reject forbidden files and absolute symlinks
+        run: |
+          set -euo pipefail
+          bad=$(git ls-files | grep -E '(^|/)(\.env|\.env\.[^/]*|[^/]*\.pem|[^/]*\.key|[^/]*\.p12)$' | grep -vE '(^|/)\.env\.example$' || true)
+          [ -z "$bad" ] || { echo "::error::forbidden files: $bad"; exit 1; }
+          [ -z "$(find . -path ./node_modules -prune -o -type l -lname '/*' -print)" ] || { echo "::error::absolute symlink"; exit 1; }
+
+      - name: Secret scan (gitleaks, checksum verified)
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          set -euo pipefail
+          base=https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}
+          curl -sSfLO "$base/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfLO "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          grep " gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz\$" "gitleaks_${GITLEAKS_VERSION}_checksums.txt" | sha256sum -c -
+          tar -xzf "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks
+          ./gitleaks git . --redact --no-banner --exit-code 1

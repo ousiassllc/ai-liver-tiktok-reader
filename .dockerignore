@@ -1,0 +1,18 @@
+# Docker build context は tiktok-reader/ なので、リポジトリルートの .dockerignore は効かない
+# (Issue #2782)。ローカルの設定・秘密情報・生成物が builder / registry cache に入らないようにする。
+# Docker のパターンは Git と異なり、**/ が無いと子ディレクトリには一致しない。
+**/node_modules
+**/dist
+**/coverage
+**/.git
+**/.github
+**/.env
+**/.env.*
+!**/.env.example
+**/*.pem
+**/*.key
+**/*.p12
+**/*.log
+**/.DS_Store
+**/sbom.cdx.json
+**/THIRD_PARTY_NOTICES.txt

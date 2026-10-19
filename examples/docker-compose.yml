@@ -1,0 +1,67 @@
+# reader 単独の起動例（Issue #2782）: reader + Firestore / Pub/Sub emulator + mock backend。
+# ai-liver 本体の private source は不要。
+#
+#   docker compose -f examples/docker-compose.yml up --build
+#
+# 接続例（shared secret）: ws://localhost:8472/ws/events?secret=dev-shared-secret
+# 接続例（render token）  : ws://localhost:8472/ws/events?session_id=dev-session
+#                           subprotocol: ai-liver-render-v1, ai-liver-render-token.dev-render-token
+# ここの値は開発用のダミーで、実運用の secret ではない。
+services:
+  firestore-emulator:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    command: gcloud emulators firestore start --host-port=0.0.0.0:8080 --project=reader-local
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ': > /dev/tcp/127.0.0.1/8080'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  pubsub-emulator:
+    image: google/cloud-sdk:latest
+    command: gcloud beta emulators pubsub start --host-port=0.0.0.0:8085 --project=reader-local
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8085 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mock-backend:
+    image: node:22-bookworm-slim
+    command: node /app/mock-backend.mjs
+    volumes:
+      - ./mock-backend.mjs:/app/mock-backend.mjs:ro
+    environment:
+      MOCK_BACKEND_PORT: "8471"
+      MOCK_INGRESS_TOKEN: dev-ingress-token
+      MOCK_SESSION_ID: dev-session
+      MOCK_RENDER_TOKEN: dev-render-token
+      MOCK_LIVE_URL: https://www.tiktok.com/@your-streamer/live
+    ports:
+      - "127.0.0.1:8471:8471"
+
+  tiktok-reader:
+    build:
+      context: ..
+      args:
+        SOURCE_COMMIT: local
+    depends_on:
+      firestore-emulator:
+        condition: service_healthy
+      pubsub-emulator:
+        condition: service_healthy
+      mock-backend:
+        condition: service_started
+    environment:
+      PORT: "8472"
+      GCP_PROJECT_ID: reader-local
+      FIRESTORE_EMULATOR_HOST: firestore-emulator:8080
+      PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
+      PUBSUB_TOPIC_NAME: tiktok-events
+      PUBSUB_SUBSCRIPTION_NAME: tiktok-events-sub
+      BACKEND_API_URL: http://mock-backend:8471/api/v1
+      BACKEND_INGRESS_TOKEN: dev-ingress-token
+      TIKTOK_READER_SHARED_SECRET: dev-shared-secret
+      TIKTOK_READER_SOURCE_URL: https://example.invalid/replace-with-your-source-url
+    ports:
+      - "127.0.0.1:8472:8472"

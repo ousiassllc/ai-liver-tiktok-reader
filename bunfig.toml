@@ -1,0 +1,28 @@
+# jest.config.js から移行。CI の bunx jest が Bun ランタイム下で全スイート
+# 環境生成エラーになるため bun test へ移行した。
+[test]
+# jest の coverageThreshold.global (50%) を引き継ぐ。
+#
+# Issue #2069 (C-1): CI の test step が `bun run test` (--coverage なし) だったため、
+# この閾値は一度も評価されていなかった。CI を `bun run test:coverage` に切り替えて
+# 実際にゲートとして機能させている。
+#
+# 注意: bun の coverageThreshold は jest の global と違い **ファイル単位** で判定する。
+# 全体では funcs/lines とも 85% を超えていても、0.5 未満のファイルが 1 つあれば落ちる。
+# 有効化時点では connection-message-router.ts (funcs 0%) だけが未達だったため、
+# tests/services/connection/connection-message-router.test.ts を追加して解消した。
+#
+# もう 1 点: firestore-lock-store.ts は Firestore emulator が無いと lines 30% まで
+# 落ちる。CI の tiktok-reader-check は emulator を起動してから test を回すのが前提で、
+# emulator の起動に失敗するとテストの skip ではなくカバレッジ割れとして落ちる。
+coverageThreshold = 0.5
+# preload は cwd の bunfig.toml から解決されるため、いずれもこのディレクトリを
+# cwd にして実行したときだけ効く（tools/bun-version-guard/README.md 参照）。
+preload = [
+  # engines.bun の下限 (>=1.3.11) を `bun test` の直接実行でも検査する (Issue #1865)。
+  # pretest 方式は `bun run test` / `npm test` 経由でしか走らず迂回できた。
+  "./scripts/preload-bun-version.mjs",
+  # テストのデフォルトタイムアウト。bunfig の `[test] timeout` は bun に無視される
+  # ため、setDefaultTimeout() で設定する (Issue #1874)。
+  "./scripts/preload-test-timeout.mjs",
+]

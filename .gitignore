@@ -1,0 +1,13 @@
+node_modules
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.log
+.DS_Store
+sbom.cdx.json
+THIRD_PARTY_NOTICES.txt

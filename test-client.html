@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TikTok Reader - 動作確認用UI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            margin-bottom: 20px;
+        }
+
+        .connection-panel {
+            display: grid;
+            gap: 15px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .form-group label {
+            font-weight: 600;
+            color: #333;
+            font-size: 0.95rem;
+        }
+
+        .form-group input {
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-connect {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            flex: 1;
+        }
+
+        .btn-connect:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-connect:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-disconnect {
+            background: #e74c3c;
+            color: white;
+            flex: 1;
+        }
+
+        .btn-disconnect:hover:not(:disabled) {
+            background: #c0392b;
+        }
+
+        .btn-disconnect:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-clear {
+            background: #95a5a6;
+            color: white;
+        }
+
+        .btn-clear:hover {
+            background: #7f8c8d;
+        }
+
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+
+        .status-disconnected {
+            background: #fee;
+            color: #c0392b;
+        }
+
+        .status-connecting {
+            background: #fef9e7;
+            color: #f39c12;
+        }
+
+        .status-connected {
+            background: #e8f8f5;
+            color: #27ae60;
+        }
+
+        .status-reconnecting {
+            background: #fff3e0;
+            color: #e65100;
+        }
+
+        .status-reconnecting .status-dot {
+            background: #e65100;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-disconnected .status-dot {
+            background: #c0392b;
+        }
+
+        .status-connecting .status-dot {
+            background: #f39c12;
+        }
+
+        .status-connected .status-dot {
+            background: #27ae60;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .events-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .events-container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .events-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .events-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .events-header h3 {
+            color: #333;
+            font-size: 1.3rem;
+        }
+
+        .event-count {
+            background: #667eea;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .events-list {
+            max-height: 500px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .events-list::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .events-list::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+
+        .events-list::-webkit-scrollbar-thumb {
+            background: #667eea;
+            border-radius: 10px;
+        }
+
+        .event-item {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 12px;
+            border-radius: 8px;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .event-item.comment {
+            border-left-color: #3498db;
+        }
+
+        .event-item.gift {
+            border-left-color: #e74c3c;
+            background: #fff5f5;
+        }
+
+        .event-item.follow {
+            border-left-color: #9b59b6;
+            background: #f9f5ff;
+        }
+
+        .event-item.share {
+            border-left-color: #1abc9c;
+            background: #f0fdf8;
+        }
+
+        .event-item.member {
+            border-left-color: #f39c12;
+            background: #fffaf0;
+        }
+
+        .event-item.subscribe {
+            border-left-color: #e67e22;
+            background: #fff8f0;
+        }
+
+        .event-item.status {
+            border-left-color: #f39c12;
+        }
+
+        .event-item.error {
+            border-left-color: #c0392b;
+            background: #fee;
+        }
+
+        .event-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .event-user {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .event-time {
+            font-size: 0.8rem;
+            color: #7f8c8d;
+        }
+
+        .event-content {
+            color: #555;
+            line-height: 1.5;
+        }
+
+        .gift-details {
+            display: flex;
+            gap: 15px;
+            margin-top: 8px;
+            font-size: 0.9rem;
+        }
+
+        .gift-badge {
+            background: #667eea;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #7f8c8d;
+        }
+
+        .empty-state svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 15px;
+            opacity: 0.3;
+        }
+
+        .stats-panel {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎥 TikTok Reader</h1>
+            <p>動作確認用テストクライアント</p>
+        </div>
+
+        <div class="card">
+            <div class="connection-panel">
+                <div class="status-indicator status-disconnected" id="statusIndicator">
+                    <span class="status-dot"></span>
+                    <span id="statusText">未接続</span>
+                </div>
+
+                <div class="form-group">
+                    <label for="wsUrl">WebSocket URL</label>
+                    <input
+                        type="text"
+                        id="wsUrl"
+                        value="ws://localhost:8472/ws/events"
+                        placeholder="ws://localhost:8472/ws/events"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="liveUrl">TikTok Live URL</label>
+                    <input
+                        type="text"
+                        id="liveUrl"
+                        placeholder="https://www.tiktok.com/@username/live"
+                        value="https://www.tiktok.com/@testuser/live"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="sessionId">Session ID</label>
+                    <input
+                        type="text"
+                        id="sessionId"
+                        placeholder="test-session-123"
+                        value="test-session-123"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="sharedSecret">Shared secret（開発用・任意）</label>
+                    <input
+                        type="password"
+                        id="sharedSecret"
+                        placeholder="TIKTOK_READER_SHARED_SECRET と同じ値"
+                        autocomplete="off"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="renderToken">Render token（任意。Shared secret が空のとき使用）</label>
+                    <input
+                        type="password"
+                        id="renderToken"
+                        placeholder="backend が発行した render token"
+                        autocomplete="off"
+                    >
+                </div>
+
+                <div class="button-group">
+                    <button class="btn-connect" id="connectBtn" onclick="connect()">
+                        🔌 接続
+                    </button>
+                    <button class="btn-disconnect" id="disconnectBtn" onclick="disconnect()" disabled>
+                        ⛔ 切断
+                    </button>
+                    <button class="btn-clear" onclick="clearEvents()">
+                        🗑️ クリア
+                    </button>
+                </div>
+            </div>
+
+            <div class="stats-panel">
+                <div class="stat-card">
+                    <div class="stat-value" id="commentCount">0</div>
+                    <div class="stat-label">コメント数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="giftCount">0</div>
+                    <div class="stat-label">ギフト数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="totalEvents">0</div>
+                    <div class="stat-label">総イベント数</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="events-container">
+                <div class="events-panel">
+                    <div class="events-header">
+                        <h3>💬 コメント</h3>
+                        <span class="event-count" id="commentCountBadge">0</span>
+                    </div>
+                    <div class="events-list" id="commentsList">
+                        <div class="empty-state">
+                            <svg fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clip-rule="evenodd"/>
+                            </svg>
+                            <p>コメントがまだありません</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="events-panel">
+                    <div class="events-header">
+                        <h3>🎁 ギフト</h3>
+                        <span class="event-count" id="giftCountBadge">0</span>
+                    </div>
+                    <div class="events-list" id="giftsList">
+                        <div class="empty-state">
+                            <svg fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z"/>
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clip-rule="evenodd"/>
+                            </svg>
+                            <p>ギフトがまだありません</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3 style="margin-bottom: 15px; color: #333;">📋 すべてのイベント</h3>
+            <div class="events-list" id="allEventsList">
+                <div class="empty-state">
+                    <svg fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/>
+                    </svg>
+                    <p>イベントがまだありません<br>TikTok Liveに接続してください</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let commentCount = 0;
+        let giftCount = 0;
+        let followCount = 0;
+        let shareCount = 0;
+        let memberCount = 0;
+        let totalEvents = 0;
+
+        function updateStatus(status, text) {
+            const indicator = document.getElementById('statusIndicator');
+            const statusText = document.getElementById('statusText');
+
+            indicator.className = `status-indicator status-${status}`;
+            statusText.textContent = text;
+        }
+
+        function updateStats() {
+            document.getElementById('commentCount').textContent = commentCount;
+            document.getElementById('giftCount').textContent = giftCount;
+            document.getElementById('totalEvents').textContent = totalEvents;
+            document.getElementById('commentCountBadge').textContent = commentCount;
+            document.getElementById('giftCountBadge').textContent = giftCount;
+        }
+
+        function formatTime(timestamp) {
+            const date = new Date(timestamp);
+            return date.toLocaleTimeString('ja-JP');
+        }
+
+        function addCommentEvent(data) {
+            commentCount++;
+            totalEvents++;
+            updateStats();
+
+            const commentsList = document.getElementById('commentsList');
+            const emptyState = commentsList.querySelector('.empty-state');
+            if (emptyState) emptyState.remove();
+
+            const eventItem = document.createElement('div');
+            eventItem.className = 'event-item comment';
+            eventItem.innerHTML = `
+                <div class="event-header">
+                    <span class="event-user">@${data.username}</span>
+                    <span class="event-time">${formatTime(data.timestamp)}</span>
+                </div>
+                <div class="event-content">${data.text}</div>
+            `;
+            commentsList.insertBefore(eventItem, commentsList.firstChild);
+
+            addToAllEvents('comment', data.username, data.text, data.timestamp);
+        }
+
+        function addGiftEvent(data) {
+            giftCount++;
+            totalEvents++;
+            updateStats();
+
+            const giftsList = document.getElementById('giftsList');
+            const emptyState = giftsList.querySelector('.empty-state');
+            if (emptyState) emptyState.remove();
+
+            const eventItem = document.createElement('div');
+            eventItem.className = 'event-item gift';
+            eventItem.innerHTML = `
+                <div class="event-header">
+                    <span class="event-user">@${data.username}</span>
+                    <span class="event-time">${formatTime(data.timestamp)}</span>
+                </div>
+                <div class="event-content">
+                    <strong>${data.giftType}</strong> をプレゼント！
+                </div>
+                <div class="gift-details">
+                    <span class="gift-badge">💎 ${data.giftAmount}</span>
+                    <span class="gift-badge">×${data.giftCount}</span>
+                </div>
+            `;
+            giftsList.insertBefore(eventItem, giftsList.firstChild);
+
+            addToAllEvents('gift', data.username, `${data.giftType} (💎${data.giftAmount} ×${data.giftCount})`, data.timestamp);
+        }
+
+        function addFollowEvent(data) {
+            followCount++;
+            totalEvents++;
+            updateStats();
+
+            addToAllEvents('follow', data.username, 'フォローしました', data.timestamp);
+        }
+
+        function addShareEvent(data) {
+            shareCount++;
+            totalEvents++;
+            updateStats();
+
+            addToAllEvents('share', data.username, 'シェアしました', data.timestamp);
+        }
+
+        function addMemberEvent(data) {
+            memberCount++;
+            totalEvents++;
+            updateStats();
+
+            addToAllEvents('member', data.username, 'ライブに参加しました', data.timestamp);
+        }
+
+        function addSubscribeEvent(data) {
+            totalEvents++;
+            updateStats();
+
+            addToAllEvents('subscribe', data.username, 'サブスクライブしました', data.timestamp);
+        }
+
+        function handleStatusEvent(message) {
+            const status = message.status;
+            const text = message.message;
+            const leader = message.leader;
+
+            // ステータスインジケーターの更新
+            switch (status) {
+                case 'connected':
+                    if (leader) {
+                        updateStatus('connected', `接続済み (リーダー: ${leader})`);
+                    } else {
+                        updateStatus('connected', '接続済み');
+                    }
+                    break;
+                case 'reconnecting':
+                    updateStatus('reconnecting', 'リーダー再選出中...');
+                    break;
+                case 'disconnected':
+                    updateStatus('disconnected', '配信終了');
+                    break;
+                default:
+                    updateStatus(status, text);
+            }
+
+            addStatusEvent(text, status, leader);
+        }
+
+        function addStatusEvent(message, status, leader) {
+            totalEvents++;
+            updateStats();
+
+            let displayMessage = message;
+            if (leader) {
+                displayMessage = `${message} (リーダー: ${leader})`;
+            }
+
+            addToAllEvents('status', 'システム', displayMessage, new Date().toISOString());
+        }
+
+        function addErrorEvent(message, code) {
+            totalEvents++;
+            updateStats();
+
+            addToAllEvents('error', 'エラー', `[${code}] ${message}`, new Date().toISOString());
+        }
+
+        function addToAllEvents(type, user, content, timestamp) {
+            const allEventsList = document.getElementById('allEventsList');
+            const emptyState = allEventsList.querySelector('.empty-state');
+            if (emptyState) emptyState.remove();
+
+            const eventItem = document.createElement('div');
+            eventItem.className = `event-item ${type}`;
+            eventItem.innerHTML = `
+                <div class="event-header">
+                    <span class="event-user">${user}</span>
+                    <span class="event-time">${formatTime(timestamp)}</span>
+                </div>
+                <div class="event-content">${content}</div>
+            `;
+            allEventsList.insertBefore(eventItem, allEventsList.firstChild);
+        }
+
+        function connect() {
+            const wsUrl = document.getElementById('wsUrl').value;
+            const liveUrl = document.getElementById('liveUrl').value;
+            const sessionId = document.getElementById('sessionId').value;
+
+            if (!liveUrl || !sessionId) {
+                alert('TikTok Live URLとSession IDを入力してください');
+                return;
+            }
+
+            try {
+                updateStatus('connecting', '接続中...');
+                // 認証情報は入力があるときだけ送る（README「使い方 > 1. WebSocket接続」参照）。
+                //   - Shared secret: ?secret= クエリ。ローカル開発用。会社の secret を一般ブラウザへ配らない。
+                //   - Render token : subprotocol ai-liver-render-v1 + ai-liver-render-token.<token> と ?session_id=。
+                //     接続できるのは、その session に紐づく配信者の connect だけ。
+                const sharedSecret = document.getElementById('sharedSecret').value;
+                const renderToken = document.getElementById('renderToken').value;
+                if (sharedSecret) {
+                    const u = new URL(wsUrl);
+                    u.searchParams.set('secret', sharedSecret);
+                    ws = new WebSocket(u.toString());
+                } else if (renderToken) {
+                    const u = new URL(wsUrl);
+                    u.searchParams.set('session_id', sessionId);
+                    ws = new WebSocket(u.toString(), ['ai-liver-render-v1', `ai-liver-render-token.${renderToken}`]);
+                } else {
+                    ws = new WebSocket(wsUrl);
+                }
+
+                ws.onopen = () => {
+                    console.log('WebSocket接続完了');
+                    updateStatus('connected', '接続済み');
+
+                    document.getElementById('connectBtn').disabled = true;
+                    document.getElementById('disconnectBtn').disabled = false;
+
+                    // 接続メッセージ送信
+                    const connectMessage = {
+                        type: 'connect',
+                        liveUrl: liveUrl,
+                        sessionId: sessionId
+                    };
+                    ws.send(JSON.stringify(connectMessage));
+                    console.log('接続メッセージ送信:', connectMessage);
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        console.log('受信:', message);
+
+                        switch (message.type) {
+                            case 'comment':
+                                addCommentEvent(message.data);
+                                break;
+                            case 'gift':
+                                addGiftEvent(message.data);
+                                break;
+                            case 'follow':
+                                addFollowEvent(message.data);
+                                break;
+                            case 'share':
+                                addShareEvent(message.data);
+                                break;
+                            case 'member':
+                                addMemberEvent(message.data);
+                                break;
+                            case 'subscribe':
+                                addSubscribeEvent(message.data);
+                                break;
+                            case 'status':
+                                handleStatusEvent(message);
+                                break;
+                            case 'error':
+                                addErrorEvent(message.message, message.code);
+                                break;
+                        }
+                    } catch (error) {
+                        console.error('メッセージ解析エラー:', error);
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    console.error('WebSocketエラー:', error);
+                    updateStatus('disconnected', '接続エラー');
+                    addErrorEvent('WebSocket接続エラーが発生しました', 'WS_ERROR');
+                };
+
+                ws.onclose = () => {
+                    console.log('WebSocket切断');
+                    updateStatus('disconnected', '切断済み');
+
+                    document.getElementById('connectBtn').disabled = false;
+                    document.getElementById('disconnectBtn').disabled = true;
+
+                    addStatusEvent('WebSocket接続が切断されました', 'disconnected');
+                };
+            } catch (error) {
+                console.error('接続エラー:', error);
+                updateStatus('disconnected', '接続失敗');
+                alert('接続に失敗しました: ' + error.message);
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function clearEvents() {
+            commentCount = 0;
+            giftCount = 0;
+            totalEvents = 0;
+            updateStats();
+
+            const lists = ['commentsList', 'giftsList', 'allEventsList'];
+            lists.forEach(listId => {
+                const list = document.getElementById(listId);
+                list.innerHTML = `
+                    <div class="empty-state">
+                        <svg fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/>
+                        </svg>
+                        <p>イベントがクリアされました</p>
+                    </div>
+                `;
+            });
+        }
+
+        // ページロード時
+        window.addEventListener('load', () => {
+            console.log('TikTok Reader テストクライアント準備完了');
+            updateStats();
+        });
+
+        // ページ離脱時に接続を切断
+        window.addEventListener('beforeunload', () => {
+            if (ws) {
+                ws.close();
+            }
+        });
+    </script>
+</body>
+</html>

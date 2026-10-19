@@ -1,0 +1,30 @@
+# 依存の既知脆弱性の定期監査（Issue #2782: 依存更新・監査を独立して運用する）。
+#
+# 上流 advisory の公開で突然赤くなるため、PR / push を契機にせず、日次 schedule と手動実行だけにする
+# （無関係な PR を止めない）。結果は Actions の失敗として通知される。
+name: npm audit
+
+on:
+  schedule:
+    - cron: "0 20 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+
+      # package-lock.json だけで動くため npm ci は不要。high / critical のみ検知対象にする。
+      - name: npm audit (production dependencies)
+        run: npm audit --omit=dev --audit-level=high
