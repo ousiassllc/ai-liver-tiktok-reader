@@ -1,10 +1,11 @@
-# 公開リポジトリ向け CI（Issue #2782）。
+# 独立ミラー向け CI（Issue #2782）。
 #
 # このファイルは ai-liver monorepo では tiktok-reader/.github/ 配下のため GitHub に無視され、
-# 公開ミラー（tiktok-reader をルートに持つリポジトリ）でだけ有効になる。
+# 独立ミラー（tiktok-reader をルートに持つリポジトリ）でだけ有効になる。
 #
 # 方針:
-#   - fork の PR でも動くよう GitHub-hosted runner・読み取り権限のみ。secrets / GCP 認証 / 本番のデプロイ権限は使わない。
+#   - private の同一 repo の PR / push は既存 self-hosted runner、public / fork PR は GitHub-hosted runner を使う。
+#   - runner group でも public repo を対象外にする。権限は読み取りのみで secrets / GCP 認証 / 本番権限を使わない。
 #   - Firestore / Pub/Sub は公開イメージのエミュレータを使い、テストを skip しない。
 #   - action は SHA で固定する（更新は Dependabot 等で行う）。
 name: ci
@@ -24,14 +25,20 @@ concurrency:
 jobs:
   check:
     name: install / build / lint / test with coverage
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     timeout-minutes: 15
+    env:
+      FIRESTORE_EMULATOR_CONTAINER: reader-mirror-firestore-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+      PUBSUB_EMULATOR_CONTAINER: reader-mirror-pubsub-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        env:
+          # action は HOME/.bun/bin に配置するため、共有ホストの別 job と分離する。
+          HOME: ${{ runner.temp }}/reader-mirror-bun-${{ github.run_id }}-${{ github.run_attempt }}
         with:
           # engines.bun の下限は >=1.3.11。devDependency の @types/bun と揃える。
           bun-version: 1.3.14
@@ -46,38 +53,50 @@ jobs:
       - name: Start Firestore emulator
         run: |
           set -euo pipefail
-          docker run --detach --rm --name firestore \
+          emulator_image="gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators"
+          anonymous_docker_config=$(mktemp -d "${RUNNER_TEMP}/reader-mirror-docker.XXXXXX")
+          # 公開イメージの取得に共有ホストの GCP 認証ヘルパーを使わせない。
+          trap 'rmdir "${anonymous_docker_config}" 2>/dev/null || true' EXIT
+          docker --config "${anonymous_docker_config}" pull "${emulator_image}"
+          docker run --detach --rm --pull=never --name "$FIRESTORE_EMULATOR_CONTAINER" \
             --publish 127.0.0.1::8080 \
-            gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators \
+            "$emulator_image" \
             gcloud emulators firestore start --host-port=0.0.0.0:8080 --project=reader-ci
+          ready=false
           for _ in $(seq 1 60); do
-            docker exec firestore bash -c ': > /dev/tcp/127.0.0.1/8080' 2>/dev/null && break
+            if docker exec "$FIRESTORE_EMULATOR_CONTAINER" bash -c ': > /dev/tcp/127.0.0.1/8080' 2>/dev/null; then
+              ready=true
+              break
+            fi
             sleep 1
           done
-          docker exec firestore bash -c ': > /dev/tcp/127.0.0.1/8080'
-          host_port=$(docker port firestore 8080/tcp | sed -E 's/.*:([0-9]+)$/\1/' | head -n1)
+          if [ "$ready" != "true" ]; then
+            docker logs "$FIRESTORE_EMULATOR_CONTAINER"
+            exit 1
+          fi
+          host_port=$(docker port "$FIRESTORE_EMULATOR_CONTAINER" 8080/tcp | sed -E 's/.*:([0-9]+)$/\1/' | head -n1)
           echo "FIRESTORE_EMULATOR_HOST=127.0.0.1:${host_port}" >> "${GITHUB_ENV}"
 
       - name: Start Pub/Sub emulator
         run: |
           set -euo pipefail
-          docker run --detach --rm --pull=never --name pubsub \
+          docker run --detach --rm --pull=never --name "$PUBSUB_EMULATOR_CONTAINER" \
             --publish 127.0.0.1::8085 \
             gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators \
             gcloud beta emulators pubsub start --host-port=0.0.0.0:8085 --project=reader-ci
           ready=false
           for _ in $(seq 1 60); do
-            if docker exec pubsub bash -c ': > /dev/tcp/127.0.0.1/8085' 2>/dev/null; then
+            if docker exec "$PUBSUB_EMULATOR_CONTAINER" bash -c ': > /dev/tcp/127.0.0.1/8085' 2>/dev/null; then
               ready=true
               break
             fi
             sleep 1
           done
           if [ "${ready}" != "true" ]; then
-            docker logs pubsub
+            docker logs "$PUBSUB_EMULATOR_CONTAINER"
             exit 1
           fi
-          host_port=$(docker port pubsub 8085/tcp | sed -E 's/.*:([0-9]+)$/\1/' | head -n1)
+          host_port=$(docker port "$PUBSUB_EMULATOR_CONTAINER" 8085/tcp | sed -E 's/.*:([0-9]+)$/\1/' | head -n1)
           echo "PUBSUB_EMULATOR_HOST=127.0.0.1:${host_port}" >> "${GITHUB_ENV}"
 
       - run: npm run build
@@ -90,14 +109,17 @@ jobs:
       - name: Stop emulators
         if: always()
         run: |
-          docker stop firestore pubsub || true
+          for container_name in "$FIRESTORE_EMULATOR_CONTAINER" "$PUBSUB_EMULATOR_CONTAINER"; do
+            docker stop "$container_name" || true
+          done
 
   docker:
     name: docker build / runtime image contents
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
       CI_SOURCE_URL: https://example.invalid/source/build-time
+      CI_IMAGE_TAG: tiktok-reader:ci-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -111,16 +133,16 @@ jobs:
           docker build \
             --build-arg SOURCE_COMMIT="${GITHUB_SHA::7}" \
             --build-arg TIKTOK_READER_SOURCE_URL="$CI_SOURCE_URL" \
-            -t tiktok-reader:ci .
+            -t "$CI_IMAGE_TAG" .
 
       - name: LICENSE / NOTICE / SOURCE.md / third-party notices / revision が image に入っている
         run: |
           set -euo pipefail
           for f in LICENSE NOTICE SOURCE.md THIRD_PARTY_NOTICES.txt; do
-            docker run --rm --entrypoint test tiktok-reader:ci -s "/app/$f"
+            docker run --rm --entrypoint test "$CI_IMAGE_TAG" -s "/app/$f"
           done
-          test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' tiktok-reader:ci)" = "${GITHUB_SHA::7}"
-          test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.source" }}' tiktok-reader:ci)" = "$CI_SOURCE_URL"
+          test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$CI_IMAGE_TAG")" = "${GITHUB_SHA::7}"
+          test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.source" }}' "$CI_IMAGE_TAG")" = "$CI_SOURCE_URL"
 
       - name: Built /source handler uses the image default and runtime overrides
         run: |
@@ -133,7 +155,7 @@ jobs:
             docker run "${runtime_args[@]}" \
               --env "EXPECTED_SOURCE_URL=$source_url" \
               --env "EXPECTED_SOURCE_COMMIT=${GITHUB_SHA::7}" \
-              --entrypoint node tiktok-reader:ci -e '
+              --entrypoint node "$CI_IMAGE_TAG" -e '
                 const assert = require("node:assert/strict");
                 const { createServer } = require("node:http");
                 const { HealthHandler } = require("./dist/handlers/health-handler");
@@ -161,9 +183,13 @@ jobs:
               '
           done
 
+      - name: Cleanup image
+        if: always()
+        run: docker image rm "$CI_IMAGE_TAG" || true
+
   audit:
     name: forbidden files / secret scan
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -183,9 +209,13 @@ jobs:
           GITLEAKS_VERSION: 8.30.1
         run: |
           set -euo pipefail
+          scan_dir=$(mktemp -d "${RUNNER_TEMP}/reader-mirror-gitleaks.XXXXXX")
+          trap 'rm -rf -- "$scan_dir"' EXIT
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          checksums="gitleaks_${GITLEAKS_VERSION}_checksums.txt"
           base=https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}
-          curl -sSfLO "$base/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          curl -sSfLO "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
-          grep " gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz\$" "gitleaks_${GITLEAKS_VERSION}_checksums.txt" | sha256sum -c -
-          tar -xzf "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks
-          ./gitleaks git . --redact --no-banner --exit-code 1
+          curl -sSfL "$base/$archive" -o "$scan_dir/$archive"
+          curl -sSfL "$base/$checksums" -o "$scan_dir/$checksums"
+          (cd "$scan_dir" && grep " $archive\$" "$checksums" | sha256sum -c -)
+          tar -xzf "$scan_dir/$archive" -C "$scan_dir" gitleaks
+          "$scan_dir/gitleaks" git . --redact --no-banner --exit-code 1

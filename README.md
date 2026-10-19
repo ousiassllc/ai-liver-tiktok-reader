@@ -202,6 +202,15 @@ Docker が使える環境では、reader を cwd にして次を Bash で実行�
 
 既存emulatorを使う場合は、両hostを設定して `npm run build && npm run test:runtime` を実行します。hostはloopbackの `host:port` が必須で、未設定・到達不能はskipせず失敗します。fixture名は実行ごとに確保し、終了時にprocess・lease・topic・subscriptionを片付けます。作業用の一時cwdと明示envを使うため、repoの `.env`・GCP資格情報は読みません。外部hostへの接続を拒否し、実TikTok配信は使いません。複数instanceのsession分離や本体への保存は検証対象外です。失敗時はreaderのstdout/stderrを表示します。
 
+### 単独ミラーの CI
+
+`.github/workflows/ci.yml` と `audit.yml` は reader をルートに持つミラーで実行される。
+private リポジトリの push・同一リポジトリの PR・依存監査は、既存の Linux / X64 セルフホステッド runner を使う。
+runner には Docker（Buildx を含む）が必要で、コンテナ名・イメージタグ・Bun の配置先は実行ごとに分離する。
+公開リポジトリと fork の PR は GitHub-hosted runner を使う。
+workflow の条件だけに依存せず、Organization の runner group でも公開リポジトリを対象外にする。
+GCP 認証・デプロイ用 secret は不要。
+
 ### Lint
 
 ```bash
@@ -503,7 +512,7 @@ tiktok-reader/
 ├── LICENSE / NOTICE / SOURCE.md       # AGPL-3.0-only・第三者表示・対応ソース案内
 ├── scripts/                           # bun preload ガード（vendor/ は同梱）・依存ライセンス表示の生成
 ├── examples/                          # 単独起動例（docker-compose.yml, mock-backend.mjs）
-├── .github/workflows/ci.yml           # 公開向け CI（GitHub-hosted、secrets 不要）
+├── .github/workflows/ci.yml           # 単独 CI（private: self-hosted、public/fork: GitHub-hosted）
 ├── test-client.html                   # ブラウザテストクライアント
 └── README.md
 ```
